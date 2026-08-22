@@ -182,7 +182,7 @@ export function computeScreen(width: number, height: number, cfg: LayoutConfig):
   // вендор-копии egf-pixi и восстанавливались руками после каждого
   // `vendor-sync`. Теперь они подняты СЮДА, а игры получают их синком.
   //
-  // Что в этой версии и почему (эталон — клиент Vowed/egf-pixi):
+  // Что в этой версии и почему (эталон — клиент egf-pixi):
   //  1. LETTERBOX ПО ОБЕИМ ОСЯМ — `stage` = вписанный опорный кадр, якорь
   //     `stageAnchor`. Коммиты 73dd7ac6/84784554 делали stage во весь экран;
   //     владелец вернул letterbox как эталон для всех игр.
