@@ -1,0 +1,17 @@
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "jsx": "react-jsx",
+    "outDir": "dist",
+    "noEmit": true,
+    "paths": {
+      "vite": ["../../../../playtagon-sdk/node_modules/vite/dist/node/index.d.ts"]
+    }
+  },
+  "include": ["src", "*.ts"]
+}

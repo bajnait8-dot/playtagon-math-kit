@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>Sic Bo</title>
+    <link rel="icon" href="data:," />
+    <style>
+      /* Дефолтный body{margin:8px} сдвигает канвас, и HUD, привязанный к нижнему
+         краю, уезжает за экран — суммы обрезаются. overflow:hidden убирает
+         полосы прокрутки от того же сдвига. */
+      html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #0600c5; }
+      canvas { display: block; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "bet": "Play",
+  "bet_amount": "Play Amount",
+  "cash_out": "Redeem",
+  "start_autobet": "Start Auto-Play",
+  "stop_autobet": "Stop Auto-Play",
+  "number_of_bets": "Number of Plays",
+  "profit_on_win": "Reward on Win"
+}

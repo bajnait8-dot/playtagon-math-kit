@@ -1,0 +1,20 @@
+{
+  "name": "@playtagon/sicbo-server",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx dev.ts",
+    "simulate": "tsx simulate.ts",
+    "build:model": "playtagon-build-model ./model/index.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@playtagon/runtime": "file:../../../../playtagon-sdk/sdk/runtime-debug",
+    "@playtagon/model-sdk": "file:../../../../playtagon-sdk/sdk/model-sdk"
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0",
+    "vitest": "^2.1.0"
+  }
+}

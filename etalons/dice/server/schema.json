@@ -1,0 +1,157 @@
+{
+  "modelId": "dice",
+  "sdkVersion": "0.2.0",
+  "rngMode": "fairness",
+
+  "entry": {
+    "module": "model/playtagon.ts",
+    "export": "createModel",
+    "description": "Model source entry point: the platform bundles an executable form from this module and calls [export](values) → IModel with the knob values of the active config version. The bundled form (dist/index.mjs) is produced by the platform and is not shipped in the bundle. Invalid values raise a typed ConfigValidationError."
+  },
+
+  "knobs": {
+    "rtp": {
+      "type": "number",
+      "min": 0.9,
+      "max": 0.99,
+      "step": 0.001,
+      "default": 0.99,
+      "control": "slider",
+      "x-role": "target-rtp",
+      "description": "Share of the bet returned to the player on average. The win multiplier is rtp / winChance, so this knob sets the house edge directly."
+    },
+    "target_min": {
+      "type": "int",
+      "min": 100,
+      "max": 5000,
+      "step": 100,
+      "default": 200,
+      "control": "number",
+      "description": "Lowest target the player can pick, in roll units (0..9999). Caps the maximum multiplier for condition = under."
+    },
+    "target_max": {
+      "type": "int",
+      "min": 5000,
+      "max": 9900,
+      "step": 100,
+      "default": 9800,
+      "control": "number",
+      "description": "Highest target the player can pick, in roll units (0..9999). Caps the maximum multiplier for condition = over."
+    },
+    "default_target": {
+      "type": "int",
+      "min": 200,
+      "max": 9800,
+      "step": 100,
+      "default": 5000,
+      "control": "number",
+      "description": "Target preselected when the game opens. Must lie within [target_min, target_max]."
+    }
+  },
+
+  "request": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["target", "condition", "bet"],
+    "properties": {
+      "target": {
+        "type": "integer",
+        "x-bounds": { "min": "target_min", "max": "target_max" },
+        "description": "Comparison threshold in roll units. Bounds come from the target_min / target_max knobs of the active config and are deliberately not repeated here as numbers, so there is a single source of truth. The client reads the effective bounds from initData.targetMin / initData.targetMax. A target outside them rejects the round."
+      },
+      "condition": {
+        "type": "string",
+        "enum": ["over", "under"],
+        "description": "Bet direction: over wins when roll > target, under wins when roll < target."
+      },
+      "bet": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 9007199254740991,
+        "description": "Bet in minor currency units (denomination is set by the RGS, not by the model). The floor is 1 — the smallest positive integer amount: a zero or negative bet is not a round and is rejected. The ceiling is the largest exactly representable integer in a double (Number.MAX_SAFE_INTEGER); above it an integer win is no longer guaranteed. Both are technical limits, not product bet limits — product bet limits are declared by the RGS and are not part of the model contract yet."
+      }
+    }
+  },
+
+  "initData": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "rollMin",
+      "rollMax",
+      "targetMin",
+      "targetMax",
+      "defaultTarget",
+      "rtp"
+    ],
+    "properties": {
+      "rollMin": { "type": "integer", "const": 0 },
+      "rollMax": { "type": "integer", "const": 9999 },
+      "targetMin": { "type": "integer", "description": "Value of the target_min knob." },
+      "targetMax": { "type": "integer", "description": "Value of the target_max knob." },
+      "defaultTarget": { "type": "integer", "description": "Value of the default_target knob." },
+      "rtp": { "type": "number", "description": "Value of the rtp knob. The client uses it to preview the multiplier." }
+    }
+  },
+
+  "playData": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["roll", "target", "condition", "multiplier", "win"],
+    "properties": {
+      "roll": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9999,
+        "description": "Roll outcome, uniform over [0, 9999]. Exactly one RNG draw per round."
+      },
+      "target": {
+        "type": "integer",
+        "description": "Threshold from the request, echoed unchanged."
+      },
+      "condition": {
+        "type": "string",
+        "enum": ["over", "under"],
+        "description": "Direction from the request, echoed unchanged."
+      },
+      "multiplier": {
+        "type": "number",
+        "minimum": 0,
+        "description": "rtp / winChance. Always returned, including on a losing round."
+      },
+      "win": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Payout in minor currency units: round(bet * multiplier) on a win, 0 on a loss. Mirrors PlayResult.win."
+      }
+    }
+  },
+
+  "replayData": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["roll", "target", "condition", "multiplier", "bet", "win"],
+    "properties": {
+      "roll": { "type": "integer", "minimum": 0, "maximum": 9999 },
+      "target": { "type": "integer" },
+      "condition": { "type": "string", "enum": ["over", "under"] },
+      "multiplier": { "type": "number", "minimum": 0 },
+      "bet": { "type": "integer", "minimum": 0 },
+      "win": { "type": "integer", "minimum": 0 }
+    }
+  },
+
+  "verifyData": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["roll"],
+    "properties": {
+      "roll": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9999,
+        "description": "Roll re-derived from the recorded RNG buffer. Must match playData.roll of the same round."
+      }
+    }
+  }
+}

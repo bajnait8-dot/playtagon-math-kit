@@ -1,0 +1,47 @@
+{
+  "modelId": "dice",
+  "configVersion": 1,
+
+  "values": {
+    "rtp": 0.99,
+    "target_min": 200,
+    "target_max": 9800,
+    "default_target": 5000
+  },
+
+  "controls": {
+    "rtp": {
+      "label": "RTP",
+      "group": "Math",
+      "order": 10,
+      "unit": "%",
+      "displayScale": 100,
+      "precision": 1,
+      "hint": "0.99 = 99%. The upper bound 0.99 is a mathematical ceiling: at rtp >= 1.0 the player's expected value is no longer negative. The lower bound 0.90 is set by the platform contract."
+    },
+    "target_min": {
+      "label": "Minimum target",
+      "group": "Target bounds",
+      "order": 20,
+      "displayScale": 0.01,
+      "precision": 2,
+      "hint": "Shown to the player as 2.00 when the value is 200."
+    },
+    "target_max": {
+      "label": "Maximum target",
+      "group": "Target bounds",
+      "order": 21,
+      "displayScale": 0.01,
+      "precision": 2,
+      "hint": "Shown to the player as 98.00 when the value is 9800."
+    },
+    "default_target": {
+      "label": "Default target",
+      "group": "Target bounds",
+      "order": 22,
+      "displayScale": 0.01,
+      "precision": 2,
+      "hint": "Must lie between Minimum target and Maximum target — otherwise the model fails to start."
+    }
+  }
+}

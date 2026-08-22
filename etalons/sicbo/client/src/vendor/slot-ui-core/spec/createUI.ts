@@ -1,0 +1,209 @@
+/**
+ * createUI(spec) — assemble a complete, configured OpenUI from one JSON UISpec,
+ * over the EXISTING reference HUD (Charter P1/P4/B9). Zero-arg `createUI()`
+ * reproduces today's 16-control HUD. Pure assembly: validate → apply overrides →
+ * wire the ref-counted spin lock → freeze the spec onto `ui.spec`.
+ */
+import { OpenUI } from '../OpenUI';
+import { ValueDisplay } from '../controls/ValueDisplay';
+import { resolveTheme } from '../theme/presets';
+import { DictionaryTranslator } from '../i18n/translator';
+import { validateSpec } from './validateSpec';
+import { installResponsive } from './responsive';
+import type { Control } from '../control/Control';
+import { resolveCurrency } from '../format/currency';
+import { portraitDefaultLayouts } from '../layout/defaultLayouts';
+import { checkSocialPhrases } from './socialPhrases';
+import type { UISpec, HostHooks, TurboSpec, ResponsiveOverride } from './types';
+import type { OpenUIEvents } from '../types';
+
+/** Resolve the turbo `modes` config (`2`/`3` presets or explicit names) to a ladder. */
+export function resolveTurboModes(modes: TurboSpec['modes']): string[] {
+  if (Array.isArray(modes)) return modes.length ? modes : ['off', 'on'];
+  if (modes === 3) return ['off', 'turbo', 'super'];
+  return ['off', 'on'];
+}
+
+/** Identity helper for typed authoring (IDE checks the shape); returns the spec. */
+export function defineUI(spec: UISpec): UISpec {
+  return spec;
+}
+
+const ANALYTICS_EVENTS = [
+  'stateChanged',
+  'buttonActivated',
+  'valueChanged',
+  'toggled',
+  'optionSelected',
+  'panelToggled',
+  'autoplayStarted',
+  'autoplayStopped',
+] as const;
+
+export function createUI(spec: UISpec = {}, hooks: HostHooks = {}, hostControls: Control[] = []): OpenUI {
+  // Never-reject: report issues to the host, but still boot.
+  const { issues } = validateSpec(spec);
+  for (const issue of issues) hooks.onDataIssue?.(issue);
+
+  const translator = spec.locale
+    ? new DictionaryTranslator(spec.locale.messages, spec.locale.locale, spec.locale.socialMessages)
+    : undefined;
+  // Theme overrides are sanitized; any rejected value is reported, never fatal.
+  const theme = resolveTheme(spec.theme, (i) => hooks.onDataIssue?.(i));
+  const ui = new OpenUI({ theme, layout: spec.layout, translator, startMuted: spec.audio?.startMuted });
+  // Контролы ХОСТА регистрируем СРАЗУ: installResponsive ниже снимает базовую
+  // раскладку только с уже зарегистрированных (`if (!c) continue`), и контрол,
+  // добавленный позже, навсегда выпал бы из responsive-бакетов.
+  for (const c of hostControls) ui.register(c);
+
+  if (spec.currency) {
+    const cur = typeof spec.currency === 'string' ? resolveCurrency(spec.currency) : spec.currency;
+    ui.balance.setCurrency(cur);
+    ui.bet.setCurrency(cur);
+    ui.totalWin.setCurrency(cur); // bonus total-win formats like the money displays
+    ui.win.setCurrency(cur);
+    ui.totalCost.setCurrency(cur);
+    ui.netPosition.setCurrency(cur);
+  }
+
+  // Social / sweepstakes mode: one switch swaps wording (+ a coin → GC/SC display).
+  if (spec.social) {
+    if (typeof spec.social === 'object') ui.setSocial(true, spec.social.coin);
+    else ui.setSocial(true);
+  }
+
+  // In social mode, LINT the game's English copy for restricted gambling wording
+  // (pay*/bet/funds/cash/…) and report each finding with a compliant replacement — so a
+  // stray "paytable" can't ship. Never blocks boot; forwarded to onDataIssue + console.
+  if (spec.social || spec.jurisdiction?.socialCasino) {
+    const found = checkSocialPhrases(spec);
+    for (const issue of found) {
+      hooks.onDataIssue?.({
+        level: 'warn',
+        path: issue.source,
+        code: 'social-forbidden-phrase',
+        message: `Social mode restricted wording in "${issue.text}": ${issue.matches.map((m) => `“${m.term}” → ${m.replacement}`).join('; ')}`,
+      });
+    }
+    if (found.length && typeof console !== 'undefined') {
+      console.warn(`[open-ui] social mode: ${found.length} string(s) contain restricted phrases (see onDataIssue). First: ${found[0]!.source} → "${found[0]!.text}"`);
+    }
+  }
+
+  if (typeof spec.rtp === 'number') ui.rtp.set(spec.rtp);
+  if (spec.game) ui.gameInfo = { name: spec.game.name, version: spec.game.version };
+  if (spec.facts) ui.declareFacts(spec.facts);
+
+  if (spec.betLadder?.levels?.length) {
+    ui.betStepper.setLevels(spec.betLadder.levels, spec.betLadder.index ?? 0);
+    ui.bet.set(ui.betStepper.value);
+  }
+
+  if (spec.autoplay?.options?.length) {
+    ui.autoplay.setOptions(spec.autoplay.options);
+  }
+  if (spec.autoplay?.mode) {
+    ui.autoplay.mode = spec.autoplay.mode;
+  }
+  if (spec.autoplay?.lossLimits) ui.autoplay.setLossLimitOptions(spec.autoplay.lossLimits);
+  if (spec.autoplay?.winLimits) ui.autoplay.setWinLimitOptions(spec.autoplay.winLimits);
+  if (spec.autoplay?.insufficientFundsNotice === false) ui.autoplayInsufficientNotice = false;
+
+  // Turbo: 2-mode (off/on) or 3-mode (off/turbo/super), or an explicit ladder.
+  if (spec.turbo) {
+    ui.turbo.setModes(resolveTurboModes(spec.turbo.modes));
+    if (spec.turbo.index != null) ui.turbo.setIndex(spec.turbo.index);
+  }
+
+  // Spin: single tap vs press-and-hold turbo.
+  if (spec.spin?.press) {
+    ui.spin.holdToSpin = spec.spin.press === 'hold-to-spin';
+  }
+
+  if (spec.controls) {
+    for (const [id, ov] of Object.entries(spec.controls)) {
+      const c = ui.control(id);
+      if (!c) continue;
+      if (ov.layout) c.layout = ov.layout;
+      // `hidden` can hide OR re-show (e.g. reveal the buy button, hidden by default).
+      if (ov.hidden != null) ui.setHidden(id, ov.hidden);
+      // label override (typed on ControlOverride but was never applied): lets a game
+      // caption a pre-built button (e.g. the revealed bonus button) — the pixi view
+      // reads `btn.label` at construction, so this must land before mountHud builds views.
+      if (ov.label != null) (c as { label?: string }).label = ov.label;
+      const disable = (c as { disable?: () => void }).disable;
+      if (ov.disabled && typeof disable === 'function') disable.call(c);
+      if (c instanceof ValueDisplay) {
+        if (ov.currency) c.setCurrency(ov.currency);
+        if (ov.initial != null) c.set(ov.initial);
+        if (ov.digits != null) c.setDigits(ov.digits);
+      }
+    }
+  }
+
+  // Buy-feature confirm threshold (explicit config) — set before jurisdiction so a
+  // platform jurisdiction can tighten it, but the game's own value is the default.
+  if (spec.buyFeature?.confirmAboveCost != null && Number.isFinite(spec.buyFeature.confirmAboveCost)) {
+    ui.confirmBuyAboveCost = Math.max(0, spec.buyFeature.confirmAboveCost);
+  }
+
+  // Jurisdiction (the Stake Engine compliance switchboard) is applied BEFORE the
+  // responsive layer snapshots its base, so a `disabled*` hide is part of that base
+  // and survives every resize (it's force-hidden too, belt-and-braces).
+  if (spec.jurisdiction) ui.applyJurisdiction(spec.jurisdiction); // ui.* stores the snapshot for isDisabled()
+
+  // Responsive overrides layer on top of the static `controls` (snapshotted as the
+  // base), re-applied on every resize. Installed here — before the renderer mounts
+  // — so it runs first on each screen change and the views read fresh layouts.
+  //
+  // The library ships a BUILT-IN portrait bucket (the Figma "Mobile DEF" reflow;
+  // the base layouts are the landscape "Desk DEF" frame) so the zero-config HUD is
+  // right on phones AND desktops. It layers UNDER host overrides: a host's static
+  // `controls.{id}.layout` wins everywhere, and a host's own `responsive.portrait`
+  // entry wins per-control.
+  const portraitControls: NonNullable<ResponsiveOverride['controls']> = {};
+  for (const [id, layout] of Object.entries(portraitDefaultLayouts)) {
+    if (spec.controls?.[id]?.layout) continue; // host laid it out statically — respect it
+    portraitControls[id] = { layout };
+  }
+  Object.assign(portraitControls, spec.responsive?.portrait?.controls);
+  installResponsive(ui, {
+    ...spec.responsive,
+    portrait: { ...spec.responsive?.portrait, controls: portraitControls },
+  });
+
+  // Ref-counted whole-HUD lock for the duration of a spin (Charter P6/G7). The
+  // host drives spin state via `ui.spin.busy()`; this just brackets it.
+  if (spec.lockDuringSpin !== false) {
+    let wasSpinning = false;
+    ui.spin.state.subscribe((s) => {
+      const now = s === 'spinning';
+      if (now && !wasSpinning) ui.lock();
+      else if (!now && wasSpinning) ui.unlock();
+      wasSpinning = now;
+    });
+  }
+
+  // Reality-check reminder (RTS 13) — open-ui owns the wall-clock timer + event +
+  // modal; the spec supplies only the cadence and (optional) text. Torn down by dispose().
+  if (spec.realityCheck && spec.realityCheck.everyMinutes > 0) {
+    ui.startRealityCheck(spec.realityCheck);
+  }
+
+  // A select control with this id switches the whole UI locale; the host still
+  // owns any persistence via HostHooks (Charter B8) — the lib only re-renders.
+  const localeSelectId = spec.localeSelectId ?? 'lang';
+  ui.on('optionSelected', ({ id, value }) => {
+    if (id === localeSelectId) ui.setLocale(value);
+  });
+
+  if (hooks.onAnalyticsEvent) {
+    const forward = hooks.onAnalyticsEvent;
+    for (const type of ANALYTICS_EVENTS) {
+      ui.on(type, (payload) => forward(type, payload as OpenUIEvents[typeof type]));
+    }
+  }
+
+  ui.spec = Object.freeze(spec);
+  return ui;
+}

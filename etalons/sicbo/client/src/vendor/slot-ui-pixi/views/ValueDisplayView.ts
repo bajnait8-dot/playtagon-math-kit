@@ -1,0 +1,261 @@
+import { CanvasTextMetrics, Container, Graphics, Text, TextStyle, type Ticker } from 'pixi.js';
+import { type ValueDisplay, type OpenUI, displayDigits, valueFitMaxWidth } from '../../slot-ui-core/index';
+import { Counter, type CounterOptions, type GsapLike } from '../../text-counter/index';
+import { ControlView } from './ControlView';
+import { TextCellRenderer } from '../renderers/TextCellRenderer';
+
+// Each digit column is masked to DIGIT_W × DIGIT_H, so these must leave room for the
+// bold outline + drop shadow or the glyphs get clipped.
+const DIGIT_W = 39;
+const DIGIT_H = 68;
+const FONT_SIZE = 48;
+
+/**
+ * Cell width for one rolling digit, measured from the ACTUAL theme font (widest
+ * of 0-9 + stroke padding). The hardcoded DIGIT_W fits the default system font;
+ * a condensed family (e.g. Oswald) in fixed 39px cells reads as l e t t e r-
+ * s p a c e d digits. Clamped to DIGIT_W so wide fonts keep the Figma metric.
+ */
+function measuredDigitWidth(family: string, hasStroke: boolean): number {
+  const style = new TextStyle({ fontFamily: family, fontSize: FONT_SIZE, fontWeight: '900' });
+  let widest = 0;
+  for (const d of '0123456789') widest = Math.max(widest, CanvasTextMetrics.measureText(d, style).width);
+  // stroke pad ≈ the 8px round-join outline; the clean look has none — tight cells
+  return Math.min(DIGIT_W, Math.ceil(widest) + (hasStroke ? 6 : 2));
+}
+/** Fixed fit budget floor (columns): values up to ~this width render full size; wider
+ *  ones scale down so the readout never spills toward its neighbours. */
+const FIT_BUDGET_COLS = 9;
+
+type Side = 'left' | 'right' | 'center';
+
+/**
+ * View for a value display (balance / bet). Wraps pixi-text-counter's `Counter`
+ * (mechanical-reel digit roll) for the number with the currency symbol/code as a
+ * tight prefix/suffix. The odometer is sized to the VALUE (no hidden leading-zero
+ * reserve), so the symbol hugs the number and large balances never clamp; it grows
+ * when the value grows. Rebuilds on currency / locale change.
+ */
+export class ValueDisplayView extends ControlView {
+  private counter: Counter | undefined;
+  private caption: Text | undefined;
+  private captionPill: Graphics | undefined;
+
+  constructor(
+    private readonly vd: ValueDisplay,
+    ui: OpenUI,
+    private readonly ticker: Ticker,
+    /** Host `gsap` — when present, the counter auto-downscales wide values to fit
+     *  (Charter B5: no hard gsap dep; the host passes it). */
+    private readonly fitGsap?: GsapLike,
+    /** Readout look: 'default' = Figma (black caption pill + heavy digit outline);
+     *  'clean' = bare caption text and stroke-free digits, drop shadows only. */
+    private readonly look: 'default' | 'clean' = 'default',
+  ) {
+    super(vd, ui);
+    this.build();
+    this.disposers.push(
+      this.vd.value.subscribe(() => {
+        if (this.destroyed) return;
+        const cur = this.vd.currency.get();
+        const needed = displayDigits(this.vd.get(), this.vd.digits, cur.decimals);
+        // Re-size the odometer to the new magnitude (grow OR shrink) so it always fits
+        // tightly — the symbol keeps hugging the number and a larger value never clamps.
+        // Only when the digit count actually changes (a power-of-ten crossing), not every
+        // roll. GROW: seed from the current value (it fits the wider odometer → a true
+        // roll). SHRINK: seed at the TARGET — the old, larger value wouldn't fit the
+        // narrower odometer and would snap to all-nines, so we skip that wrong intermediate.
+        if (this.counter && needed !== this.counter.digits) {
+          const from = needed > this.counter.digits ? this.counter.getValue() : this.vd.minorUnits;
+          this.buildCounter(needed, from);
+        }
+        void this.counter?.setValue(this.vd.minorUnits);
+      }),
+      this.vd.currency.subscribe(() => {
+        if (!this.destroyed) this.rebuild();
+      }),
+      // re-translate the caption on language switch (guard a post-dispose emit)
+      this.ui.locale.subscribe(() => {
+        if (!this.destroyed) this.rebuild();
+      }),
+      // accent emphasis (e.g. a bet display showing the boosted effective stake):
+      // rebuild the odometer with the accent fill at the same width
+      this.vd.emphasized.subscribe(() => {
+        if (!this.destroyed && this.counter) this.buildCounter(this.counter.digits, this.vd.minorUnits);
+      }),
+    );
+  }
+
+  private side(): Side {
+    // Mirror the anchor: a left-anchored readout (Balance) has its ORIGIN on the left
+    // and grows rightward; a right-anchored one (Bet) has its origin on the right and
+    // grows LEFTWARD — so a growing bet value never runs over the bet ± buttons that
+    // sit to its right. The `fit` auto-scale pivots at this same edge.
+    const a = this.vd.layout.anchor;
+    return a.includes('left') ? 'left' : a.includes('right') ? 'right' : 'center';
+  }
+
+  private build(): void {
+    const theme = this.ui.theme;
+
+    if (this.vd.label) {
+      const plain = this.look === 'clean';
+      // Figma "default" look: the caption is a bold white word on a solid black pill
+      // (Баланс / Ставка), floating just above the outlined value. 'plain' drops the
+      // pill: bare white text with a soft shadow so it reads on any background.
+      this.caption = new Text({
+        // Figma: the label is NOT uppercased — "Баланс" / "Ставка" as authored.
+        text: this.ui.t(this.vd.label),
+        style: {
+          fontFamily: theme.type.family, fontSize: 28, fill: 0xffffff, fontWeight: '900', letterSpacing: 0,
+          ...(plain ? { dropShadow: { color: 0x000000, alpha: 0.6, blur: 4, distance: 2, angle: Math.PI / 2 } } : {}),
+        },
+      });
+      this.caption.anchor.set(0.5, 0.5);
+      // upstream: pill sized via sizeCaptionPill() + re-measure on fonts.ready;
+      // our clean look: no pill graphic at all (plain) — sizing stays plain-aware.
+      if (!plain) {
+        this.captionPill = new Graphics();
+        this.addChild(this.captionPill);
+      }
+      this.addChild(this.caption);
+      this.sizeCaptionPill();
+      // Re-measure once web fonts settle: on first mount Pixi may size the pill from
+      // FALLBACK metrics (before the real font is active), so a non-Latin caption
+      // (e.g. "Общий выигрыш") would clip and never correct itself. Fits the pill to
+      // the true glyph width the moment the font is ready — no counter rebuild.
+      if (typeof document !== 'undefined' && document.fonts?.ready) {
+        void document.fonts.ready.then(() => {
+          if (!this.destroyed && this.caption) this.sizeCaptionPill();
+        });
+      }
+    }
+
+    const cur = this.vd.currency.get();
+    this.buildCounter(displayDigits(this.vd.get(), this.vd.digits, cur.decimals), this.vd.minorUnits);
+  }
+
+  /** Size the caption pill to the caption's current measured width + padding and centre
+   *  the text in it, anchored to the value's side. Re-runnable (fonts-ready / relayout). */
+  private sizeCaptionPill(): void {
+    if (!this.caption) return;
+    const plain = this.look === 'clean';
+    const side = this.side();
+    const padX = plain ? 0 : 24;
+    const padY = plain ? 4 : 8;
+    const pillW = Math.ceil(this.caption.width) + padX * 2;
+    const pillH = Math.ceil(this.caption.height) + padY * 2;
+    // Anchor the pill to the value's side so it lines up with the number below it.
+    const pillX = side === 'left' ? 0 : side === 'right' ? -pillW : -pillW / 2;
+    // Figma: ~24px air above the value; clean look hugs the caption to the digits
+    const pillY = -DIGIT_H / 2 - pillH - (plain ? 0 : 14);
+    this.captionPill?.clear().roundRect(pillX, pillY, pillW, pillH, 12).fill({ color: 0x000000 });
+    this.caption.position.set(pillX + pillW / 2, pillY + pillH / 2);
+  }
+
+  /** (Re)create the rolling counter sized to `total` columns, starting at `fromMinor`. */
+  private buildCounter(total: number, fromMinor: number): void {
+    this.counter?.destroy();
+    const theme = this.ui.theme;
+    const cur = this.vd.currency.get();
+    const side = this.side();
+    // clean: ячейка по фактическому шрифту; default: канонические 39px Figma
+    // (иначе 8px-аутлайн default-вида клипается в узких измеренных ячейках)
+    const digitW = this.look === 'clean' ? measuredDigitWidth(theme.type.family, false) : DIGIT_W;
+
+    const clean = this.look === 'clean';
+    const renderer = new TextCellRenderer({
+      // Figma "default" readout: Montserrat Black, white, with a bold BLACK OUTLINE
+      // plus a soft drop shadow (0px 4px, 25% black) under it. 'clean' drops the
+      // outline and leans on a stronger shadow instead.
+      style: {
+        fontFamily: theme.type.family,
+        fontSize: FONT_SIZE,
+        // Emphasis (ValueDisplay.setEmphasis) renders the value in the theme
+        // accent — "this number is modified" (boosted effective stake, etc.).
+        fill: this.vd.emphasized.get() ? theme.color.accent : 0xffffff,
+        fontWeight: '900',
+        ...(clean ? {} : { stroke: { color: 0x000000, width: 8, join: 'round' } }),
+        dropShadow: clean
+          ? { color: 0x000000, alpha: 0.55, blur: 4, distance: 3, angle: Math.PI / 2 }
+          : { color: 0x000000, alpha: 0.25, blur: 2, distance: 4, angle: Math.PI / 2 },
+      },
+      digitWidth: digitW,
+      digitHeight: DIGIT_H,
+      // no fillerChar → rolling cells show real digits (crisp, no blur, no blank flicker)
+    });
+
+    const opts: CounterOptions = {
+      digits: total,
+      decimals: cur.decimals,
+      decimalChar: cur.decimalChar ?? '.',
+      separator: { char: cur.separator ?? ',', every: 3 },
+      cellRenderer: renderer,
+      digitWidth: digitW,
+      digitHeight: DIGIT_H,
+      initialValue: fromMinor,
+      // Tight sizing means the value fills its columns — leading-zero hide only ever
+      // trims a digit or two after a grow, never a permanent reserve gap.
+      leadingZeros: { mode: 'hide' },
+      blur: { enabled: false },
+      ticker: this.ticker,
+    };
+    // Affix = the symbol (when display:'symbol' and one is set) else the code. Tight
+    // sizing keeps it adjacent to the number: "$1,234.50" / "1,234.50€" / "100,000 SATS".
+    const symbolMode = cur.display === 'symbol' && !!cur.symbol;
+    const affix = symbolMode ? (cur.symbol as string) : cur.code;
+    // Stake placement: a PREFIX symbol hugs the number ("$1,234.50"); a SUFFIX symbol
+    // (zł, kr, …) OR the ISO code is spaced ("1.234,50 zł" / "1,234.50 USD").
+    if ((cur.position ?? 'suffix') === 'prefix') opts.prefix = symbolMode ? affix : `${affix} `;
+    else opts.suffix = ` ${affix}`;
+
+    // A very large value (whale crypto, big SATS counts) is scaled down to a fixed
+    // budget so it never spills into its neighbours; normal magnitudes render full size.
+    if (this.fitGsap) {
+      opts.fit = {
+        gsap: this.fitGsap,
+        maxWidth: valueFitMaxWidth(Math.max(this.vd.digits, FIT_BUDGET_COLS), DIGIT_W),
+        minScale: 0.5,
+        anchor: side, // left→0 · right→fullWidth · center→fullWidth/2
+      };
+    }
+
+    this.counter = new Counter(opts);
+    this.counter.y = -DIGIT_H / 2;
+    // With `fit`, the counter pivots at its anchored point (left edge / right edge /
+    // centre), so x=0 pins THAT point to the control origin and stays put at any fit
+    // scale. Without fit there is no pivot, so shift right/centre left by the width.
+    if (this.fitGsap) {
+      this.counter.x = 0;
+    } else {
+      // No host gsap → clamp the width STATICALLY so a large value can never overflow
+      // its box and drift onto a neighbouring button (the gsap path animates this same
+      // clamp; here it just snaps). Scale down to the fit budget, floored at 0.5 (which
+      // covers up to 18 columns), and re-anchor to the scaled width.
+      const budget = valueFitMaxWidth(Math.max(this.vd.digits, FIT_BUDGET_COLS), DIGIT_W);
+      const natural = this.counter.width;
+      const k = natural > budget ? Math.max(0.5, budget / natural) : 1;
+      this.counter.scale.set(k);
+      this.counter.y = -DIGIT_H * k / 2; // keep it vertically centred at the shrunk size
+      const w = natural * k;
+      this.counter.x = side === 'left' ? 0 : side === 'right' ? -w : -w / 2;
+    }
+    this.addChild(this.counter);
+  }
+
+  private rebuild(): void {
+    this.counter?.destroy();
+    this.caption?.destroy();
+    this.captionPill?.destroy();
+    this.counter = undefined;
+    this.caption = undefined;
+    this.captionPill = undefined;
+    this.removeChildren();
+    this.build();
+  }
+
+  override dispose(): void {
+    this.counter?.destroy();
+    super.dispose();
+  }
+}

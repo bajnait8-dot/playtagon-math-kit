@@ -1,0 +1,282 @@
+{
+  "modelId": "sicbo",
+  "sdkVersion": "0.2.0",
+  "rngMode": "fairness",
+
+  "entry": {
+    "module": "model/playtagon.ts",
+    "export": "createModel",
+    "description": "Исходная точка платформенного входа: платформа собирает от неё исполняемую форму и зовёт createModel(values) → IModel со значениями ручек действующей версии конфига. Рядом экспортируется buildModel(values) — вторая половина пары конвенции (Регламент 11.1), её зовёт только генерируемый bake-адаптер. Невалидные values — типизированный ConfigValidationError."
+  },
+
+  "knobs": {
+    "total_payouts": {
+      "type": "object",
+      "control": "none",
+      "description": "Коэффициент выплаты (профит, без возврата ставки) на каждую сумму трёх костей. Ставка total_S выигрывает, когда сумма броска равна S; вероятность каждой суммы задана костями и не настраивается. Верхняя граница каждого элемента — коэффициент, при котором RTP этой суммы достигает 100%: платить больше значит платить в минус дому. Фабрика проверяет это поэлементно (инвариант смысла, Регламент 5.7.2).",
+      "required": ["4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17"],
+      "properties": {
+        "4":  { "type": "int", "min": 1, "max": 71, "step": 1, "default": 60, "description": "Сумма 4: 3 исхода из 216 (p = 1.3889%). RTP = p × (payout + 1); 100% достигается ровно при 71." },
+        "5":  { "type": "int", "min": 1, "max": 35, "step": 1, "default": 30, "description": "Сумма 5: 6 из 216 (p = 2.7778%). RTP 100% ровно при 35." },
+        "6":  { "type": "int", "min": 1, "max": 20, "step": 1, "default": 18, "description": "Сумма 6: 10 из 216 (p = 4.6296%). RTP 100% при 20.6 — целый потолок 20." },
+        "7":  { "type": "int", "min": 1, "max": 13, "step": 1, "default": 12, "description": "Сумма 7: 15 из 216 (p = 6.9444%). RTP 100% при 13.4 — целый потолок 13." },
+        "8":  { "type": "int", "min": 1, "max": 9,  "step": 1, "default": 8,  "description": "Сумма 8: 21 из 216 (p = 9.7222%). RTP 100% при 9.2857 — целый потолок 9." },
+        "9":  { "type": "int", "min": 1, "max": 7,  "step": 1, "default": 6,  "description": "Сумма 9: 25 из 216 (p = 11.5741%). RTP 100% при 7.64 — целый потолок 7." },
+        "10": { "type": "int", "min": 1, "max": 7,  "step": 1, "default": 6,  "description": "Сумма 10: 27 из 216 (p = 12.5%). RTP 100% ровно при 7." },
+        "11": { "type": "int", "min": 1, "max": 7,  "step": 1, "default": 6,  "description": "Сумма 11: 27 из 216 (p = 12.5%). RTP 100% ровно при 7." },
+        "12": { "type": "int", "min": 1, "max": 7,  "step": 1, "default": 6,  "description": "Сумма 12: 25 из 216 (p = 11.5741%). RTP 100% при 7.64 — целый потолок 7." },
+        "13": { "type": "int", "min": 1, "max": 9,  "step": 1, "default": 8,  "description": "Сумма 13: 21 из 216 (p = 9.7222%). RTP 100% при 9.2857 — целый потолок 9." },
+        "14": { "type": "int", "min": 1, "max": 13, "step": 1, "default": 12, "description": "Сумма 14: 15 из 216 (p = 6.9444%). RTP 100% при 13.4 — целый потолок 13." },
+        "15": { "type": "int", "min": 1, "max": 20, "step": 1, "default": 18, "description": "Сумма 15: 10 из 216 (p = 4.6296%). RTP 100% при 20.6 — целый потолок 20." },
+        "16": { "type": "int", "min": 1, "max": 35, "step": 1, "default": 30, "description": "Сумма 16: 6 из 216 (p = 2.7778%). RTP 100% ровно при 35." },
+        "17": { "type": "int", "min": 1, "max": 71, "step": 1, "default": 60, "description": "Сумма 17: 3 из 216 (p = 1.3889%). RTP 100% ровно при 71." }
+      },
+      "default": {
+        "4": 60, "5": 30, "6": 18, "7": 12, "8": 8, "9": 6, "10": 6,
+        "11": 6, "12": 6, "13": 8, "14": 12, "15": 18, "16": 30, "17": 60
+      }
+    },
+
+    "triple_specific_payout": {
+      "type": "int",
+      "min": 100,
+      "max": 215,
+      "step": 1,
+      "default": 180,
+      "control": "number",
+      "description": "Коэффициент ставки на КОНКРЕТНУЮ тройку (triple_1 … triple_6): выигрывает, когда все три кости показали заданную грань. Вероятность 1 из 216 (0.463%), RTP = p × (payout + 1) достигает 100% ровно при 215 — это и есть потолок: граница включительная, игра в ноль допустима, в минус дому — нет. Нижняя граница 100 рыночная: столов с коэффициентом ниже 100:1 на конкретную тройку не встречается."
+    },
+
+    "triple_any_payout": {
+      "type": "int",
+      "min": 10,
+      "max": 35,
+      "step": 1,
+      "default": 30,
+      "control": "number",
+      "description": "Коэффициент ставки на ЛЮБУЮ тройку (triple_any): выигрывает на любых трёх одинаковых гранях. Вероятность 6 из 216 (2.7778%), RTP достигает 100% ровно при 35 — это и есть потолок, граница включительная. Нижняя граница 10 рыночная."
+    },
+
+    "double_payout": {
+      "type": "int",
+      "min": 5,
+      "max": 12,
+      "step": 1,
+      "default": 10,
+      "control": "number",
+      "description": "Коэффициент ставки на пару (double_1 … double_6): выигрывает, когда заданная грань выпала не менее двух раз (тройка тоже содержит пару и потому выигрывает). Вероятность 16 из 216 (7.4074%), RTP достигает 100% при 12.5 — целый потолок 12. Нижняя граница 5 рыночная."
+    },
+
+    "combo_payout": {
+      "type": "int",
+      "min": 4,
+      "max": 6,
+      "step": 1,
+      "default": 6,
+      "control": "number",
+      "description": "Коэффициент ставки на комбинацию двух РАЗНЫХ граней (combo_12 … combo_56, всего 15 зон): выигрывает, когда в броске присутствуют обе заданные грани. Вероятность 30 из 216 (13.8889%), RTP достигает 100% при 6.2 — целый потолок 6, то есть дефолт уже стоит почти на математическом пределе (RTP 97.2222%). Нижняя граница 4 рыночная."
+    }
+  },
+
+  "request": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["bets"],
+    "properties": {
+      "bets": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 50,
+        "description": "Список ставок раунда: по одной записи на занятую зону стола. Пустой список — отказ раунда. Потолок 50 — число зон стола (дублировать зону нельзя, фишки одной зоны складывает клиент), это техническая граница механики, а не продуктовый лимит.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "amount"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "small", "big", "triple_any",
+                "triple_1", "triple_2", "triple_3", "triple_4", "triple_5", "triple_6",
+                "double_1", "double_2", "double_3", "double_4", "double_5", "double_6",
+                "single_1", "single_2", "single_3", "single_4", "single_5", "single_6",
+                "total_4", "total_5", "total_6", "total_7", "total_8", "total_9", "total_10",
+                "total_11", "total_12", "total_13", "total_14", "total_15", "total_16", "total_17",
+                "combo_12", "combo_13", "combo_14", "combo_15", "combo_16",
+                "combo_23", "combo_24", "combo_25", "combo_26",
+                "combo_34", "combo_35", "combo_36",
+                "combo_45", "combo_46", "combo_56"
+              ],
+              "description": "Зона стола. Набор из 50 зон — свойство механики трёх костей, конфигом не меняется. Повтор одной зоны в списке — отказ раунда."
+            },
+            "amount": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991,
+              "description": "Ставка на эту зону в младших единицах валюты (деноминацию задаёт РГС, модель её не знает). Минимум 1 — строго больше нуля: нулевая и отрицательная ставка отвергают раунд. Потолок — Number.MAX_SAFE_INTEGER, выше него целочисленность выигрыша не гарантируется double. Обе границы технические; продуктовые лимиты ставок объявляет РГС/оператор и в контракт модели не входят."
+            }
+          }
+        }
+      }
+    }
+  },
+
+  "initData": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["betTypes", "payouts", "history"],
+    "properties": {
+      "betTypes": {
+        "type": "array",
+        "minItems": 50,
+        "maxItems": 50,
+        "items": { "type": "string" },
+        "description": "Все 50 зон стола — клиент строит по ним разметку. Состав задан механикой трёх костей и от ручек не зависит."
+      },
+      "payouts": {
+        "type": "object",
+        "additionalProperties": { "type": "integer" },
+        "description": "Коэффициент (профит, без возврата ставки) по каждой зоне — снимок ДЕЙСТВУЮЩЕГО конфига для подписей на столе. Значения приходят из ручек: total_S — из total_payouts.S, triple_N — из triple_specific_payout, triple_any — из triple_any_payout, double_N — из double_payout, combo_NN — из combo_payout. Зоны small/big и single_N коэффициентами не настраиваются (константы механики, см. protocol.md)."
+      },
+      "history": {
+        "type": "array",
+        "maxItems": 0,
+        "items": {},
+        "description": "Всегда пустой массив: fairness-режим запрещает cross-round context, раунд обязан выводиться только из пары сидов и нонса. Историю раундов ведёт клиент."
+      }
+    }
+  },
+
+  "playData": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["roll", "bets", "wins", "totalBet", "totalWin", "category"],
+    "properties": {
+      "roll": {
+        "type": "array",
+        "minItems": 3,
+        "maxItems": 3,
+        "items": { "type": "integer", "minimum": 1, "maximum": 6 },
+        "description": "Исход розыгрыша: три грани в порядке броска. Ровно три обращения к RNG за раунд, каждое getInt(1, 6)."
+      },
+      "bets": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 50,
+        "description": "Ставки из запроса, возвращённые без изменений — клиент рисует по ним занятые зоны.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "amount"],
+          "properties": {
+            "type": { "type": "string" },
+            "amount": { "type": "integer", "minimum": 1 }
+          }
+        }
+      },
+      "wins": {
+        "type": "array",
+        "maxItems": 50,
+        "description": "По записи на каждую ВЫИГРАВШУЮ зону. Проигравшие зоны сюда не попадают; проигрышный раунд даёт пустой список.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "amount", "payout"],
+          "properties": {
+            "type": { "type": "string", "description": "Выигравшая зона." },
+            "amount": { "type": "integer", "minimum": 1, "description": "Ставка на этой зоне." },
+            "payout": { "type": "integer", "minimum": 0, "description": "Выплата по этой зоне ВКЛЮЧАЯ возврат ставки, младшие единицы валюты." }
+          }
+        }
+      },
+      "totalBet": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Сумма всех ставок раунда, младшие единицы. Совпадает с PlayResult.bet."
+      },
+      "totalWin": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Сумма всех выплат раунда, младшие единицы; 0 — проигрыш. Совпадает с PlayResult.win."
+      },
+      "category": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["total", "kind"],
+        "description": "Категория броска для ленты раундов.",
+        "properties": {
+          "total": { "type": "integer", "minimum": 3, "maximum": 18, "description": "Сумма трёх граней." },
+          "kind": { "type": "string", "enum": ["small", "big", "triple"], "description": "Тройка — отдельная категория, а не small/big: small/big на тройке не платят." }
+        }
+      }
+    }
+  },
+
+  "replayData": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["roll", "bets", "wins", "totalBet", "totalWin", "category"],
+    "properties": {
+      "roll": {
+        "type": "array",
+        "minItems": 3,
+        "maxItems": 3,
+        "items": { "type": "integer", "minimum": 1, "maximum": 6 }
+      },
+      "bets": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 50,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "amount"],
+          "properties": {
+            "type": { "type": "string" },
+            "amount": { "type": "integer", "minimum": 1 }
+          }
+        }
+      },
+      "wins": {
+        "type": "array",
+        "maxItems": 50,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "amount", "payout"],
+          "properties": {
+            "type": { "type": "string" },
+            "amount": { "type": "integer", "minimum": 1 },
+            "payout": { "type": "integer", "minimum": 0 }
+          }
+        }
+      },
+      "totalBet": { "type": "integer", "minimum": 1 },
+      "totalWin": { "type": "integer", "minimum": 0 },
+      "category": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["total", "kind"],
+        "properties": {
+          "total": { "type": "integer", "minimum": 3, "maximum": 18 },
+          "kind": { "type": "string", "enum": ["small", "big", "triple"] }
+        }
+      }
+    }
+  },
+
+  "verifyData": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["roll"],
+    "properties": {
+      "roll": {
+        "type": "array",
+        "minItems": 3,
+        "maxItems": 3,
+        "items": { "type": "integer", "minimum": 1, "maximum": 6 },
+        "description": "Бросок, заново выведенный из зафиксированного буфера RNG. Обязан совпадать с playData.roll того же раунда."
+      }
+    }
+  }
+}

@@ -1,0 +1,166 @@
+:root {
+  /* Accent (orange — BET, active, win) */
+  --og-primary:       #f45b21;
+  --og-primary-hi:    #f97316;
+  --og-primary-lo:    #e14613;
+  --og-accent:        #f45b21;
+
+  /* Backgrounds */
+  --og-bg:            #0d0d0f;
+  --og-bg-card:       #17171b;
+  --og-bg-elev:       #1a1c1e;
+  --og-bg-inset:      #000000;
+
+  /* Text */
+  --og-text:          #ffffff;
+  --og-text-muted:    #8a8a90;
+  --og-text-dim:      #5a5a60;
+
+  /* Lines / borders */
+  --og-border:        rgba(255,255,255,0.08);
+  --og-border-strong: rgba(255,255,255,0.20);
+  --og-inset-hi:      rgba(255,248,248,0.16);
+
+  /* Semantic — win = orange (glow), loss = grey/dim */
+  --og-win:           #f45b21;
+  --og-loss:          #5a5a60;
+  --og-danger:        #ef4444;
+  --og-success:       #22c55e;
+  --og-bg-hover:      rgba(255,255,255,0.06);
+
+  /* Shape / type */
+  --og-radius:        16px;
+  --og-radius-btn:    17px;
+  --og-font:          'Inter', system-ui, -apple-system, sans-serif;
+}
+
+@utility og-card {
+  background: var(--og-bg-card);
+  border: 1px solid var(--og-border);
+  border-radius: var(--og-radius);
+}
+
+/* Dotted-decor: dot-matrix background texture via radial-gradient (no SVG assets).
+ * Matches the Figma artboard fill exactly — the `text-dot-wh` tile is a 2px white
+ * dot (r=1 in a 10×10 box) at 0.5 opacity, layered at 20% over #09090b → an
+ * effective rgba(255,255,255,0.1) dot on a 10px grid. */
+@utility og-dotted-decor {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1.2px);
+  background-size: 10px 10px;
+}
+
+/*
+ * BET button — matches Figma `Button/Bet` 1:1.
+ * Active/Hover: solid orange gradient #f45b21→#e14613. Disable: #303030→#1e1e1e + #5c5c5c text.
+ * radius 17, border rgba(255,255,255,.2), inset highlight rgba(255,248,248,.16).
+ * NOTE: do NOT combine with og-dotted-decor on the same element — that sets background-image
+ * and masks the gradient. The dotted corners are rendered as separate overlays (og-decor-corner).
+ */
+@utility og-btn-primary {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: linear-gradient(to bottom, var(--og-primary), var(--og-primary-lo));
+  color: #fff;
+  border: 1px solid var(--og-border-strong);
+  border-radius: var(--og-radius-btn);
+  font-weight: 600;
+  line-height: normal;
+  white-space: nowrap;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 0 var(--og-inset-hi);
+  transition: filter 0.15s, transform 0.1s;
+  &:hover:not(:disabled) { filter: brightness(1.05); }
+  &:active:not(:disabled) { transform: translateY(1px); }
+  &:disabled {
+    background: linear-gradient(to bottom, #303030, #1e1e1e);
+    color: #5c5c5c;
+    cursor: not-allowed;
+  }
+}
+
+@utility og-btn-danger {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--og-danger) 100%, white 12%), var(--og-danger), color-mix(in srgb, var(--og-danger) 100%, black 18%));
+  color: #fff;
+  border: 1px solid var(--og-border-strong);
+  border-radius: var(--og-radius-btn);
+  font-weight: 600;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 0 var(--og-inset-hi);
+  transition: filter 0.15s, transform 0.1s;
+  &:hover:not(:disabled) { filter: brightness(1.06); }
+  &:active:not(:disabled) { transform: translateY(1px); }
+  &:disabled { opacity: 0.45; cursor: not-allowed; }
+}
+
+/* Secondary button (Figma SecButton): dark pill, icon + #979797 text. */
+@utility og-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 10px;
+  background: #17181b;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #979797;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 20px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: filter 0.15s, transform 0.1s;
+  &:hover:not(:disabled) { filter: brightness(1.2); }
+  &:active:not(:disabled) { transform: translateY(1px); }
+  &:disabled { opacity: 0.45; cursor: not-allowed; }
+}
+
+/*
+ * Dotted-decor (Figma Items/Dotted-Decor) is rendered as individual `.og-dot` elements by
+ * the <DottedDecor> React component. Dots are STATIC by default; the per-dot wave pulse runs
+ * ONLY while the host button is hovered. --og-dot-delay (set inline per dot) staggers the wave.
+ * Mirrors Oleg's burstPixel (opacity+scale flicker, steps timing).
+ */
+@keyframes og-dot-pulse {
+  0%, 100% { opacity: 0.22; transform: scale(0.78); }
+  18% { opacity: 1; transform: scale(1.3); }
+  36% { opacity: 0.4; transform: scale(0.9); }
+  54% { opacity: 1; transform: scale(1.1); }
+  72% { opacity: 0; transform: scale(0.5); }
+}
+
+.og-btn-primary:hover:not(:disabled) .og-dot,
+.og-btn-danger:hover:not(:disabled) .og-dot {
+  animation: og-dot-pulse 1100ms steps(1, end) infinite;
+  animation-delay: var(--og-dot-delay, 0ms);
+}
+
+/* Toggle inactive segment hover (Figma Button/Toggle State=Hover): translucent fill. */
+.og-toggle-seg:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: #d9d9d9;
+}
+
+/* Volume slider (Figma Settings slider) — orange gradient thumb on a dark track. */
+.og-volume {
+  -webkit-appearance: none; appearance: none;
+  height: 10px; border-radius: 6px;
+  background: linear-gradient(to bottom, #202224, #16171a);
+  border: 1px solid var(--og-border-strong);
+}
+.og-volume::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: linear-gradient(to bottom, #f45b21, #e14613);
+  box-shadow: inset 0 1px 0 0 var(--og-inset-hi); cursor: pointer;
+}
+.og-volume::-moz-range-thumb {
+  width: 20px; height: 20px; border: none; border-radius: 50%;
+  background: linear-gradient(to bottom, #f45b21, #e14613); cursor: pointer;
+}

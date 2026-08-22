@@ -1,0 +1,19 @@
+{
+  "name": "playtagon-math-kit",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "etalons/dice/server",
+    "etalons/dice/client",
+    "etalons/sicbo/server",
+    "etalons/sicbo/client"
+  ],
+  "scripts": {
+    "test": "npm run test:dice && npm run test:sicbo",
+    "test:dice": "npm run test -w @playtagon/dice-server",
+    "test:sicbo": "npm run test -w @playtagon/sicbo-server && npm run test -w @playtagon/sicbo-client"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  }
+}
